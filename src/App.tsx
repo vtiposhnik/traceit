@@ -1,0 +1,394 @@
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import {
+  ArrowRight,
+  BookOpen,
+  Check,
+  CircleHelp,
+  HardDrive,
+  History,
+  Images,
+  PanelsTopLeft,
+  Repeat2,
+  RotateCcw,
+  X,
+} from 'lucide-react'
+import { type SurfaceHandle } from './drawing/Surface'
+import {
+  exerciseReducer,
+  formatTime,
+  isDrawing,
+  newExercise,
+  stageTime,
+  toSession,
+  type PracticeConfig,
+  type Session,
+} from './exercise/engine'
+import { transferTime } from './exercise/Transfer'
+import { collection } from './library/collection'
+import type { Reference } from './library/reference'
+import { studioStore } from './storage/studio'
+import { IconButton, Modal, ReferenceThumb } from './ui/components'
+import { SessionHistory } from './ui/History'
+import { Library } from './ui/Library'
+import { PracticeSetup } from './ui/PracticeSetup'
+import { Workspace } from './ui/Workspace'
+
+type Page = 'workspace' | 'library' | 'history'
+type Dialog =
+  | { kind: 'setup'; ref: Reference }
+  | { kind: 'review'; session: Session }
+  | { kind: 'clear' | 'restart' | 'help' | 'done' }
+  | null
+
+export function App() {
+  const [page, setPage] = useState<Page>('workspace')
+  const [exercise, dispatch] = useReducer(exerciseReducer, undefined, () =>
+    newExercise(collection[0], { mode: 'free', seconds: 60 }),
+  )
+  const [dialog, setDialog] = useState<Dialog>(null)
+  const [paused, setPaused] = useState(false)
+  const [visible, setVisible] = useState(!document.hidden)
+  const [saveState, setSaveState] = useState<'local' | 'saving' | 'saved' | 'error'>('local')
+  const [error, setError] = useState('')
+  const board = useRef<SurfaceHandle>(null)
+  const from = useRef<DOMRect | null>(null)
+  const hasWork = isDrawing(exercise.stage) && (exercise.trace.cursor > 0 || exercise.reconstruct.cursor > 0)
+  const stage = exercise.stage
+  const advance = useCallback(() => {
+    if (!isDrawing(stage)) return
+    board.current?.finish()
+    if (stage === 'trace') from.current = board.current?.paperBox() ?? null
+    dispatch({ type: 'advance', id: exercise.id, stage, now: performance.now(), completedAt: Date.now() })
+  }, [stage, exercise.id])
+  useEffect(() => {
+    const changed = () => {
+      if (document.hidden) board.current?.finish()
+      setVisible(!document.hidden)
+    }
+    document.addEventListener('visibilitychange', changed)
+    return () => document.removeEventListener('visibilitychange', changed)
+  }, [])
+  useEffect(() => {
+    dispatch({
+      type: 'clock',
+      run: page === 'workspace' && dialog === null && !paused && visible && isDrawing(stage),
+      now: performance.now(),
+    })
+  }, [page, dialog, paused, visible, stage, exercise.id])
+  useEffect(() => {
+    if (exercise.config.mode !== 'timed' || exercise.runningSince === null || !isDrawing(stage)) return
+    const timeout = setTimeout(
+      advance,
+      Math.max(0, exercise.config.seconds * 1000 - stageTime(exercise, performance.now())),
+    )
+    return () => clearTimeout(timeout)
+  }, [stage, exercise.config, exercise.elapsed, exercise.runningSince, advance])
+  useEffect(() => {
+    if (stage !== 'transfer') return
+    const timeout = setTimeout(
+      () => dispatch({ type: 'land', id: exercise.id }),
+      matchMedia('(prefers-reduced-motion: reduce)').matches ? 20 : transferTime + 20,
+    )
+    return () => clearTimeout(timeout)
+  }, [stage, exercise.id])
+  useEffect(() => {
+    if (exercise.stage !== 'compare') return
+    let live = true
+    setSaveState('saving')
+    studioStore
+      .saveSession(toSession(exercise))
+      .then(() => {
+        if (live) {
+          setSaveState('saved')
+          setError('')
+        }
+      })
+      .catch(() => {
+        if (live) {
+          setSaveState('error')
+          setError(
+            'Your browser could not save this session. Free some local storage, then use Finish session to retry.',
+          )
+        }
+      })
+    return () => {
+      live = false
+    }
+  }, [exercise])
+
+  function navigate(next: Page) {
+    board.current?.finish()
+    setDialog(null)
+    setPage(next)
+    window.scrollTo(0, 0)
+  }
+  function configure(ref: Reference) {
+    board.current?.finish()
+    setDialog({ kind: 'setup', ref })
+  }
+  function start(ref: Reference, config: PracticeConfig) {
+    setPaused(false)
+    setError('')
+    setSaveState('local')
+    from.current = null
+    dispatch({ type: 'start', reference: ref, config })
+    navigate('workspace')
+  }
+  function openReview(session: Session) {
+    board.current?.finish()
+    setPaused(false)
+    dispatch({ type: 'review', session })
+    navigate('workspace')
+  }
+  async function complete() {
+    board.current?.finish()
+    try {
+      await studioStore.saveSession(toSession(exercise))
+      setError('')
+      setSaveState('saved')
+      setDialog({ kind: 'done' })
+    } catch {
+      setSaveState('error')
+      setError(
+        'Local storage is unavailable. The drawings are still on your desk. Free space and try Finish session again.',
+      )
+    }
+  }
+  function pause() {
+    board.current?.finish()
+    setPaused((v) => !v)
+  }
+  return (
+    <>
+      <a className="skip-link" href="#content">
+        Skip to workspace
+      </a>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <a
+            href="#workspace"
+            className="wordmark"
+            aria-label="Traceit workspace"
+            onClick={(e) => {
+              e.preventDefault()
+              navigate('workspace')
+            }}
+          >
+            <img src="/mark.svg" alt="" />
+            Traceit
+          </a>
+          <i className="brand-divider" />
+          <nav className="main-nav" aria-label="Main navigation">
+            {(
+              [
+                ['workspace', 'Workspace', PanelsTopLeft],
+                ['library', 'Reference library', Images],
+                ['history', 'Session history', History],
+              ] as const
+            ).map(([key, label, Icon]) => (
+              <button
+                key={key}
+                aria-current={page === key ? 'page' : undefined}
+                className={page === key ? 'active' : ''}
+                onClick={() => navigate(key)}
+              >
+                <Icon size={16} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="header-end">
+            <span className="local-indicator" role="status">
+              <i className={'status-dot ' + (saveState === 'error' ? 'error-dot' : '')} />
+              {saveState === 'saving'
+                ? 'Saving…'
+                : saveState === 'saved'
+                  ? 'Session saved'
+                  : saveState === 'error'
+                    ? 'Save failed'
+                    : 'Local studio'}
+            </span>
+            <i className="divider" />
+            <IconButton
+              label="Practice guide and shortcuts"
+              onClick={() => {
+                board.current?.finish()
+                setDialog({ kind: 'help' })
+              }}
+            >
+              <CircleHelp size={19} />
+            </IconButton>
+          </div>
+        </div>
+      </header>
+      <div id="content" tabIndex={-1}>
+        {error && (
+          <div className="global-error" role="alert">
+            <span>{error}</span>
+            <IconButton label="Dismiss message" onClick={() => setError('')}>
+              <X size={16} />
+            </IconButton>
+          </div>
+        )}
+        {page === 'workspace' && (
+          <Workspace
+            key={exercise.id}
+            exercise={exercise}
+            dispatch={dispatch}
+            board={board}
+            from={from.current}
+            paused={paused}
+            pause={pause}
+            restart={() => setDialog({ kind: 'restart' })}
+            advance={advance}
+            complete={() => void complete()}
+            configure={configure}
+            library={() => navigate('library')}
+            clear={() => setDialog({ kind: 'clear' })}
+            blocked={!!dialog || !visible}
+          />
+        )}
+        {page === 'library' && <Library select={configure} />}
+        {page === 'history' && (
+          <SessionHistory
+            open={(session) => (hasWork ? setDialog({ kind: 'review', session }) : openReview(session))}
+            library={() => navigate('library')}
+          />
+        )}
+      </div>
+      {dialog?.kind === 'setup' && (
+        <PracticeSetup
+          reference={dialog.ref}
+          initial={exercise.config}
+          replacing={hasWork}
+          onClose={() => setDialog(null)}
+          start={(config) => start(dialog.ref, config)}
+        />
+      )}
+      {dialog?.kind === 'clear' && (
+        <Modal title="Clear this drawing?" onClose={() => setDialog(null)}>
+          <p>Remove all marks from the current layer. You can bring them back with Undo.</p>
+          <div className="modal-actions">
+            <button className="button" onClick={() => setDialog(null)}>
+              Cancel
+            </button>
+            <button
+              className="button primary"
+              onClick={() => {
+                dispatch({ type: 'clear' })
+                setDialog(null)
+              }}
+            >
+              Clear layer
+            </button>
+          </div>
+        </Modal>
+      )}
+      {dialog?.kind === 'restart' && (
+        <Modal title="Restart this challenge?" onClose={() => setDialog(null)}>
+          <p>
+            Begin tracing {exercise.reference.title.toLowerCase()} again with a fresh timer and blank drawing
+            layers.
+          </p>
+          <div className="modal-actions">
+            <button className="button" onClick={() => setDialog(null)}>
+              Cancel
+            </button>
+            <button className="button primary" onClick={() => start(exercise.reference, exercise.config)}>
+              <RotateCcw size={15} />
+              Restart challenge
+            </button>
+          </div>
+        </Modal>
+      )}
+      {dialog?.kind === 'review' && (
+        <Modal title="Open saved comparison?" onClose={() => setDialog(null)}>
+          <p>This replaces the unfinished exercise on your desk.</p>
+          <div className="modal-actions">
+            <button className="button" onClick={() => setDialog(null)}>
+              Cancel
+            </button>
+            <button className="button primary" onClick={() => openReview(dialog.session)}>
+              Open comparison
+            </button>
+          </div>
+        </Modal>
+      )}
+      {dialog?.kind === 'help' && (
+        <Modal title="Practice guide" onClose={() => setDialog(null)}>
+          <ol className="guide-steps">
+            <li>
+              <strong>Trace</strong> Draw over a reference to study its structure.
+            </li>
+            <li>
+              <strong>Reconstruct</strong> Redraw it using your tracing as a guide.
+            </li>
+            <li>
+              <strong>Compare</strong> Overlay the drawings and look for differences.
+            </li>
+          </ol>
+          <h3 className="shortcuts-title">Desk shortcuts</h3>
+          <dl className="shortcuts">
+            {[
+              ['Pencil / Eraser / Pan', 'B / E / H'],
+              ['Move reconstruction', 'V'],
+              ['Pan the sheet', 'Space + drag'],
+              ['Zoom at the pointer', 'Scroll'],
+              ['Undo', 'Ctrl / ⌘ + Z'],
+              ['Redo', 'Ctrl / ⌘ + Shift + Z'],
+            ].map(([label, key]) => (
+              <div key={label}>
+                <dt>{label}</dt>
+                <dd>
+                  <kbd>{key}</kbd>
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="device-note">
+            <HardDrive size={15} />
+            Your uploads and completed sessions are stored in this browser.
+          </p>
+        </Modal>
+      )}
+      {dialog?.kind === 'done' && (
+        <Modal title="Session complete" onClose={() => setDialog(null)}>
+          <div className="saved-message">
+            <Check size={16} />
+            Saved to session history
+          </div>
+          <div className="setup-reference">
+            <ReferenceThumb item={exercise.reference} />
+            <div>
+              <small>{exercise.config.mode === 'free' ? 'Free practice' : 'Timed challenge'}</small>
+              <h3>{exercise.reference.title}</h3>
+            </div>
+          </div>
+          <div className="duration-summary">
+            <div>
+              <span>Tracing time</span>
+              <strong>{formatTime(exercise.elapsed.trace / 1000)}</strong>
+            </div>
+            <div>
+              <span>Reconstruction time</span>
+              <strong>{formatTime(exercise.elapsed.reconstruct / 1000)}</strong>
+            </div>
+          </div>
+          <div className="done-actions">
+            <button className="button primary" onClick={() => configure(exercise.reference)}>
+              <Repeat2 size={16} />
+              Repeat this reference
+            </button>
+            <button className="button" onClick={() => navigate('library')}>
+              <BookOpen size={16} />
+              Choose another reference
+            </button>
+            <button className="text-button" onClick={() => navigate('history')}>
+              View session history <ArrowRight size={15} />
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}
