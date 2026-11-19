@@ -10,15 +10,24 @@ export default defineConfig({
   workers: 2,
   timeout: 45000,
   use: {
-    baseURL: 'http://127.0.0.1:4174',
     viewport: { width: 1360, height: 900 },
     launchOptions: { executablePath: chromium },
     screenshot: 'only-on-failure',
   },
-  webServer: {
-    command: 'npm run build && npm run preview -- --host 127.0.0.1 --port 4174 --strictPort',
-    url: 'http://127.0.0.1:4174',
-    reuseExistingServer: !process.env.CI,
-    timeout: 60000,
-  },
+  projects: [
+    { name: 'production', use: { baseURL: 'http://127.0.0.1:4174' } },
+    { name: 'development', use: { baseURL: 'http://127.0.0.1:4175' } },
+  ],
+  webServer: [
+    {
+      command: 'npm run build && npm run preview -- --host 127.0.0.1 --port 4174 --strictPort',
+      url: 'http://127.0.0.1:4174',
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      command: 'npm run dev -- --host 127.0.0.1 --port 4175 --strictPort',
+      url: 'http://127.0.0.1:4175',
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 })

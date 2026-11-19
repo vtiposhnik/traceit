@@ -20,10 +20,10 @@ npm run preview
 
 ## Using the desk
 
-1. Select a studio reference, upload an image in **My library**, or search Openverse in **Explore**. Choose Free practice or a time limit for each drawing stage.
+1. Select a studio reference, use the **Add images** card in **My library**, or search Openverse in **Explore**. Choose Free practice or a time limit for each drawing stage.
 2. Draw over the reference. **B**, **E**, and **H** select pencil, eraser, and pan. Scroll to zoom around the pointer. Hold **Space** and drag to pan. The fit button recenters the sheet. Clear can be undone.
 3. Choose **Finish tracing**. The sheet moves into the traced-reference panel. That panel has its own zoom, pan, and visibility controls. On a phone, **Tracing** opens the reference overlay.
-4. Draw again on the blank sheet. In comparison, drag the reconstruction, toggle individual layers, change opacity, or reveal the original. **Separate** shows both sheets at their original alignment. **Reset alignment** restores the original overlay.
+4. Draw again on the blank sheet. In comparison, drag the reconstruction, toggle individual layers, change opacity, or reveal the original. **Separate** shows both sheets at their original alignment. **Reset alignment** clears the overlay offset and, in Separate view, recenters both sheets at fit zoom.
 5. **Finish session** confirms the save and offers another practice. Reopen a comparison from **Session history**. Completed drawings and comparison edits save to this browser. An unfinished drawing stays on the desk while navigating within the app. Reloading starts a fresh desk.
 
 Timed challenges offer 30 seconds, 60 seconds, 2 minutes, 5 minutes, or a custom duration of 1–3600 seconds per drawing. The timer pauses for dialogs, other app screens, and hidden tabs. A deadline commits an active stroke before advancing. Comparison is untimed.
@@ -55,7 +55,7 @@ Uploads are decoded locally and saved as raster images, capped at 25 MB per inpu
 npm run test:e2e
 ```
 
-The Playwright suite builds and serves the production bundle on port 4174. It uses the system Chromium when present. On another machine, install the Playwright browser with `npx playwright install chromium` or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to a compatible executable.
+The Playwright suite runs against the production bundle on port 4174 and the React development server on port 4175. It uses the system Chromium when present. On another machine, install the Playwright browser with `npx playwright install chromium` or set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to a compatible executable.
 
 The browser tests cover the free-practice flow, timed transitions during a captured stroke, undo and redo, erasing, clear confirmation, pan and zoom, adaptive dimming, comparison transforms, reload recovery, and mobile upload management. Touch cancellation and pen pressure use Chromium's simulated input. Discovery tests use controlled provider responses to exercise licensing, CORS fallback, and outages.
 

@@ -91,6 +91,8 @@ export function Workspace({
   const [hidden, setHidden] = useState(false)
   const [reviewTool, setReviewTool] = useState<'move' | 'pan'>('move')
   const preview = useRef<SurfaceHandle>(null)
+  const separateTrace = useRef<SurfaceHandle>(null)
+  const separateReconstruction = useRef<SurfaceHandle>(null)
   const image = useImageUrl(reference)
   const trace = useMemo(() => visibleStrokes(ex.trace), [ex.trace])
   const reconstruction = useMemo(() => visibleStrokes(ex.reconstruct), [ex.reconstruct])
@@ -251,12 +253,14 @@ export function Workspace({
                 {[
                   {
                     title: 'Tracing',
+                    ref: separateTrace,
                     strokes: trace,
                     color: ink.trace,
                     alpha: comparison.traceVisible ? comparison.traceOpacity : 0,
                   },
                   {
                     title: 'Reconstruction',
+                    ref: separateReconstruction,
                     strokes: reconstruction,
                     color: ink.reconstruct,
                     alpha: comparison.reconstructionVisible ? comparison.reconstructionOpacity : 0,
@@ -266,6 +270,7 @@ export function Workspace({
                     <span className="split-title">{v.title}</span>
                     <Surface
                       {...common}
+                      ref={v.ref}
                       label={v.title + ' separate view'}
                       variant="split"
                       tool="pan"
@@ -528,7 +533,14 @@ export function Workspace({
                 on={comparison.originalVisible}
                 change={() => adjust({ originalVisible: !comparison.originalVisible })}
               />
-              <button className="button change-ref" onClick={() => adjust({ offset: { x: 0, y: 0 } })}>
+              <button
+                className="button change-ref"
+                onClick={() => {
+                  separateTrace.current?.fit()
+                  separateReconstruction.current?.fit()
+                  adjust({ offset: { x: 0, y: 0 } })
+                }}
+              >
                 <RotateCcw size={14} />
                 Reset alignment
               </button>

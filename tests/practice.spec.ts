@@ -251,6 +251,16 @@ test('tools erase and restore ink, undo clear, and preserve image coordinates un
   await page.getByRole('button', { name: 'Fit drawing to board' }).click()
   await expect.poll(async () => (await imageBox(main(page))).x).toBeCloseTo(before.x, 0)
   await page.setViewportSize({ width: 1060, height: 780 })
+  // The resize observer schedules the paper layout and backing store update on the next frame.
+  await expect
+    .poll(() =>
+      base.evaluate(
+        (canvas: HTMLCanvasElement) =>
+          canvas.width === Math.round(canvas.clientWidth * devicePixelRatio) &&
+          canvas.height === Math.round(canvas.clientHeight * devicePixelRatio),
+      ),
+    )
+    .toBe(true)
   const fit = await imageBox(main(page))
   const anchorX = fit.x + fit.width / 2
   const anchorY = fit.y + fit.height / 2
@@ -318,11 +328,19 @@ test.describe('narrow touch workspace', () => {
   }) => {
     await page.goto('/')
     await page.getByRole('button', { name: 'Reference library', exact: true }).click()
-    await page.getByLabel('Upload reference files').setInputFiles({
+    await expect(page.getByRole('button', { name: 'Add images' })).toHaveCount(0)
+    await page.getByRole('button', { name: 'My library', exact: true }).click()
+    const addImages = page.getByRole('button', { name: 'Add images', exact: true })
+    const chooser = page.waitForEvent('filechooser')
+    await addImages.click()
+    await (
+      await chooser
+    ).setFiles({
       name: 'Local shell.webp',
       mimeType: 'image/webp',
       buffer: readFileSync('public/studies/nautilus-shell.webp'),
     })
+    await expect(page.locator('.library-grid > :first-child')).toHaveAccessibleName('Add images')
     await page.getByRole('button', { name: 'View Local shell', exact: true }).click()
     await page.getByRole('button', { name: 'Rename image' }).click()
     await page.getByLabel('Reference name').fill('Shell from my desk')
@@ -416,4 +434,82 @@ test('save failure keeps both drawings available and Finish session retries the 
   const saved = await sessionReady(page)
   expect(saved.trace).toHaveLength(1)
   expect(saved.reconstruct).toHaveLength(1)
+})
+
+test('lower-right marks survive release and remain in place across reference and comparison views', async ({
+  page,
+}) => {
+  await page.goto('/')
+  async function drawMark(y: number) {
+    const b = await imageBox(main(page))
+    await page.mouse.move(b.x + b.width * 0.65, b.y + b.height * y)
+    await page.mouse.down()
+    await page.mouse.move(b.x + b.width * 0.9, b.y + b.height * y, { steps: 14 })
+    await page.mouse.up()
+  }
+  async function expectMark(surface: Locator, y: number, layer = '.ink-layer') {
+    await expect
+      .poll(() =>
+        surface.evaluate(
+          (el, { y, layer }) => {
+            const paper = el.querySelector('.paper')!.getBoundingClientRect()
+            const canvas = el.querySelector<HTMLCanvasElement>(layer)!
+            const rect = canvas.getBoundingClientRect()
+            const xPixel = ((paper.left + 0.77 * paper.width - rect.left) * canvas.width) / rect.width
+            const yPixel = ((paper.top + y * paper.height - rect.top) * canvas.height) / rect.height
+            const rgba = canvas
+              .getContext('2d')!
+              .getImageData(Math.round(xPixel) - 2, Math.round(yPixel) - 2, 5, 5).data
+            return rgba.some((alpha, i) => i % 4 === 3 && alpha > 0)
+          },
+          { y, layer },
+        ),
+      )
+      .toBe(true)
+  }
+  await drawMark(0.85)
+  await expectMark(main(page), 0.85)
+  await next(page)
+  await expect(reconstruct(page)).toBeEnabled()
+  await expectMark(page.getByRole('application', { name: 'Traced reference' }), 0.85)
+  await drawMark(0.71)
+  await expectMark(main(page), 0.71)
+  await reconstruct(page).click()
+  await expectMark(main(page), 0.85)
+  await expectMark(main(page), 0.71, '.overlay-layer')
+  const overlayBox = await imageBox(main(page))
+  const x = overlayBox.x + 0.55 * overlayBox.width
+  const y = overlayBox.y + 0.5 * overlayBox.height
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + 24, y + 32)
+  await page.mouse.up()
+  await expect.poll(async () => (await stored(page))[0]?.comparison.offset.x).toBeGreaterThan(0)
+  const splitViews = ['Tracing', 'Reconstruction'].map((name) =>
+    page.getByRole('application', { name: name + ' separate view' }),
+  )
+  for (const repeat of [false, true]) {
+    await page.getByRole('button', { name: 'Separate', exact: true }).click()
+    await expectMark(splitViews[0], 0.85)
+    await expectMark(splitViews[1], 0.71)
+    if (!repeat) {
+      const initial = await Promise.all(splitViews.map(imageBox))
+      for (const [i, surface] of splitViews.entries()) {
+        await surface.hover()
+        await page.mouse.wheel(0, -160)
+        await expect.poll(async () => (await imageBox(surface)).width).toBeGreaterThan(initial[i].width)
+        await page.mouse.down()
+        await page.mouse.move(initial[i].x + 0.6 * initial[i].width, initial[i].y + 0.6 * initial[i].height)
+        await page.mouse.up()
+      }
+      await page.getByRole('button', { name: 'Reset alignment' }).click()
+      for (const [i, surface] of splitViews.entries()) {
+        await expect.poll(() => imageBox(surface)).toEqual(initial[i])
+      }
+      await expect.poll(async () => (await stored(page))[0].comparison.offset).toEqual({ x: 0, y: 0 })
+    }
+    await page.getByRole('button', { name: 'Overlay', exact: true }).click()
+    await expectMark(main(page), 0.85)
+    await expectMark(main(page), 0.71, '.overlay-layer')
+  }
 })

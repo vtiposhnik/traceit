@@ -6,13 +6,12 @@ import {
   Check,
   Compass,
   ExternalLink,
-  ImagePlus,
+  Plus,
   Images,
   LoaderCircle,
   Pencil,
   Search,
   Trash2,
-  Upload,
 } from 'lucide-react'
 import { collection } from '../library/collection'
 import { readImage } from '../library/images'
@@ -108,18 +107,6 @@ export function Library({
           <h1>Reference library</h1>
           <p>Choose a subject for your next drawing practice.</p>
         </div>
-        <button className="button primary" onClick={() => file.current?.click()} disabled={busy}>
-          {busy ? <LoaderCircle className="spin" /> : <Upload />}Upload images
-        </button>
-        <input
-          hidden
-          ref={file}
-          type="file"
-          multiple
-          accept="image/png,image/jpeg,image/webp,image/avif,image/gif,image/bmp"
-          aria-label="Upload reference files"
-          onChange={(e) => void upload(e.target.files)}
-        />
       </div>
       <div className="library-tabs" aria-label="Reference sources">
         {(
@@ -158,40 +145,50 @@ export function Library({
               {items.length} {items.length === 1 ? 'REFERENCE' : 'REFERENCES'}
             </span>
           </div>
-          {items.length ? (
-            <div className="library-grid">
-              {items.map((item) => (
-                <article className="library-card" key={item.id}>
-                  <button
-                    className="card-image-button"
-                    aria-label={'View ' + item.title}
-                    onClick={() => {
-                      setInspect(item)
-                      setEdit(null)
-                    }}
-                  >
-                    <ReferenceThumb item={item} lazy />
+          <div className="library-grid">
+            {tab === 'upload' && (
+              <>
+                <button
+                  className="library-card upload-card"
+                  disabled={busy}
+                  onClick={() => file.current?.click()}
+                >
+                  {busy ? <LoaderCircle className="spin" /> : <Plus />}
+                  {busy ? 'Adding images…' : 'Add images'}
+                </button>
+                <input
+                  hidden
+                  ref={file}
+                  type="file"
+                  multiple
+                  accept="image/png,image/jpeg,image/webp,image/avif,image/gif,image/bmp"
+                  aria-label="Upload reference files"
+                  onChange={(e) => void upload(e.target.files)}
+                />
+              </>
+            )}
+            {items.map((item) => (
+              <article className="library-card" key={item.id}>
+                <button
+                  className="card-image-button"
+                  aria-label={'View ' + item.title}
+                  onClick={() => {
+                    setInspect(item)
+                    setEdit(null)
+                  }}
+                >
+                  <ReferenceThumb item={item} lazy />
+                </button>
+                <div className="library-card-info">
+                  <span className="micro">{item.subject}</span>
+                  <h3>{item.title}</h3>
+                  <button className="text-button" onClick={() => select(item)}>
+                    Use reference <ArrowRight size={15} />
                   </button>
-                  <div className="library-card-info">
-                    <span className="micro">{item.subject}</span>
-                    <h3>{item.title}</h3>
-                    <button className="text-button" onClick={() => select(item)}>
-                      Use reference <ArrowRight size={15} />
-                    </button>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              <ImagePlus size={32} />
-              <h3>Your personal references</h3>
-              <p>Upload a JPEG, PNG, or WebP to keep it on this device.</p>
-              <button className="button" onClick={() => file.current?.click()} disabled={busy}>
-                Choose images
-              </button>
-            </div>
-          )}
+                </div>
+              </article>
+            ))}
+          </div>
         </>
       )}
       {inspect && (

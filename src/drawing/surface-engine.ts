@@ -291,12 +291,13 @@ export class SurfaceEngine {
     const width = Math.round(host.clientWidth * dpr)
     const height = Math.round(host.clientHeight * dpr)
     if (!width || !height) return
-    if (base.width !== width || base.height !== height) {
-      for (const layer of [base, overlay, this.cache]) {
+    // A remounted engine gets a fresh cache even when the DOM canvases retain their size.
+    for (const layer of [base, overlay, this.cache]) {
+      if (layer.width !== width || layer.height !== height) {
         layer.width = width
         layer.height = height
+        this.baseDirty = true
       }
-      this.baseDirty = true
     }
     const project = (ctx: CanvasRenderingContext2D) => {
       ctx.setTransform(rect.scale * dpr, 0, 0, rect.scale * dpr, rect.x * dpr, rect.y * dpr)

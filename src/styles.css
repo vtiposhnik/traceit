@@ -1323,6 +1323,21 @@ kbd {
   overflow: hidden;
   background: var(--panel);
 }
+.upload-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 150px;
+  border-style: dashed;
+  color: var(--clay-dark);
+  font-weight: 570;
+}
+.upload-card:hover:not(:disabled) {
+  border-color: var(--clay);
+  background: #f4ecdf;
+}
 .card-image-button,
 .discovery-image {
   display: block;
