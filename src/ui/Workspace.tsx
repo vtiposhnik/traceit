@@ -59,6 +59,7 @@ type Props = {
   restart: () => void
   advance: () => void
   complete: () => void
+  comparisonSaved: boolean
   configure: (ref: Reference) => void
   library: () => void
   clear: () => void
@@ -75,6 +76,7 @@ export function Workspace({
   restart,
   advance,
   complete,
+  comparisonSaved,
   configure,
   library,
   clear,
@@ -569,6 +571,14 @@ export function Workspace({
               >
                 <RotateCcw size={14} />
                 Reset alignment
+              </button>
+              <button
+                className="button change-ref"
+                disabled={!comparisonSaved}
+                onClick={() => dispatch({ type: 'retry-reconstruction' })}
+              >
+                <RotateCcw size={14} />
+                Try reconstruction again
               </button>
             </Panel>
           ) : (

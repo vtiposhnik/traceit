@@ -28,6 +28,7 @@ import {
 import { transferTime } from './exercise/Transfer'
 import { collection } from './library/collection'
 import type { Reference } from './library/reference'
+import { currentStudy, downloadBackup } from './storage/backup'
 import { DeskConflict, studioStore } from './storage/studio'
 import { IconButton, Modal, ReferenceThumb } from './ui/components'
 import { SessionHistory } from './ui/History'
@@ -298,6 +299,11 @@ function Studio({ initial, readError }: { initial: Exercise | null; readError: b
                 {conflict ? 'Use this tab’s study' : 'Retry save'}
               </button>
             )}
+            {saveState === 'error' && (
+              <button className="button" onClick={() => {
+                void downloadBackup(currentStudy(exercise)).catch(() => setError('The study download failed. Please try again.'))
+              }}>Download this study</button>
+            )}
             <IconButton label="Dismiss message" onClick={() => setError('')}>
               <X size={16} />
             </IconButton>
@@ -314,6 +320,7 @@ function Studio({ initial, readError }: { initial: Exercise | null; readError: b
             pause={pause}
             restart={() => setDialog({ kind: 'restart' })}
             advance={advance}
+            comparisonSaved={saveState === 'saved'}
             complete={() => void complete()}
             configure={configure}
             library={() => navigate('library')}
@@ -324,6 +331,7 @@ function Studio({ initial, readError }: { initial: Exercise | null; readError: b
         {page === 'library' && <Library select={configure} />}
         {page === 'history' && (
           <SessionHistory
+            unsaved={saveState === 'error' || saveState === 'saving' ? exercise : undefined}
             open={(session) => (hasWork ? setDialog({ kind: 'review', session }) : openReview(session))}
             library={() => navigate('library')}
           />

@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, History as HistoryIcon } from 'lucide-react'
-import { formatTime, type Session } from '../exercise/engine'
+import { formatTime, type Exercise, type Session } from '../exercise/engine'
 import { studioStore } from '../storage/studio'
+import { BackupDialog } from './StudioBackup'
 import { ReferenceThumb } from './components'
 
-export function SessionHistory({ open, library }: { open: (s: Session) => void; library: () => void }) {
+export function SessionHistory({ open, library, unsaved }: {
+  open: (s: Session) => void
+  library: () => void
+  unsaved?: Exercise
+}) {
+  const [backupOpen, setBackupOpen] = useState(false)
   const [sessions, setSessions] = useState<Session[] | null>(null)
   const [error, setError] = useState(false)
   useEffect(() => {
@@ -28,7 +34,9 @@ export function SessionHistory({ open, library }: { open: (s: Session) => void; 
           <h1>Session history</h1>
           <p>Reopen a completed exercise to review your drawings.</p>
         </div>
+        <button className="button" onClick={() => setBackupOpen(true)}>Studio backup</button>
       </div>
+      {backupOpen && <BackupDialog unsaved={unsaved} close={() => setBackupOpen(false)} />}
       {error ? (
         <p className="error-message" role="alert">
           Your browser could not read saved sessions.
@@ -58,6 +66,7 @@ export function SessionHistory({ open, library }: { open: (s: Session) => void; 
                 </small>
                 <h2>{s.reference.title}</h2>
                 <p>
+                  {s.retryOf && 'Reconstruction retry · '}
                   {s.config.mode === 'free' ? 'Free practice' : 'Timed challenge'} ·{' '}
                   {formatTime((s.elapsed.trace + s.elapsed.reconstruct) / 1000)} total
                 </p>

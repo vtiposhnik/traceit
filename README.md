@@ -28,6 +28,10 @@ npm run preview
 
 Timed challenges offer 30 seconds, 60 seconds, 2 minutes, 5 minutes, or a custom duration of 1–3600 seconds per drawing. The timer pauses for dialogs, other app screens, and hidden tabs. A deadline commits an active stroke before advancing. Comparison is untimed.
 
+In Compare, **Try reconstruction again** starts a blank reconstruction with the same tracing, reference, and practice duration. Each finished attempt has its own history entry.
+
+Open **Session history → Studio backup** to download the desk, completed studies, and library. The file includes reference images, editable strokes, and comparison settings. To use it in another browser, choose **Restore backup**, select the file, and confirm. Matching records are updated, and a backed-up unfinished study replaces the current desk. When a save fails, **Download this study** exports the drawing from memory in the same format.
+
 ## Source map
 
 | Directory | Responsibility |

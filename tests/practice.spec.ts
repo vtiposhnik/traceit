@@ -571,8 +571,30 @@ test('Compare scales only reconstruction and links the two Separate cameras', as
   expect((await stored(page))[0].reconstruct).toEqual(session.reconstruct)
 })
 
+async function openBackup(page: Page) {
+  await page.getByRole('button', { name: 'Session history', exact: true }).click()
+  await page.getByRole('button', { name: 'Studio backup', exact: true }).click()
+}
+
+async function downloadedFile(page: Page, action: string) {
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: action, exact: true }).click()
+  const path = await (await download).path()
+  if (!path) throw new Error('Missing backup download')
+  return path
+}
+
+async function restoreFile(page: Page, path: string) {
+  await openBackup(page)
+  await page.getByLabel('Backup file').setInputFiles(path)
+  await Promise.all([
+    page.waitForEvent('load'),
+    page.getByRole('button', { name: 'Restore studies' }).click(),
+  ])
+}
+
 for (const viewport of [{ width: 1360, height: 900 }, { width: 820, height: 1180 }]) {
-  test(`resumes an uploaded study after tab close at width ${viewport.width}`, async ({ page, context }) => {
+  test(`resumes, retries, and restores an uploaded study at width ${viewport.width}`, async ({ page, context, browser }) => {
     await page.setViewportSize(viewport)
     await page.goto('/')
     await page.getByRole('button', { name: 'Reference library', exact: true }).click()
@@ -618,10 +640,46 @@ for (const viewport of [{ width: 1360, height: 900 }, { width: 820, height: 1180
     await reopened.reload()
     await expect(reopened.getByRole('button', { name: 'Finish tracing' })).toBeVisible()
     expect(await stored(reopened)).toHaveLength(1)
+    await reopened.getByRole('button', { name: 'Session history', exact: true }).click()
+    await reopened.getByRole('button', { name: 'Open comparison' }).click()
+    await reopened.getByRole('button', { name: 'Try reconstruction again' }).click()
+    await expect(reconstruct(reopened)).toBeEnabled()
+    await expect.poll(() => pixels(main(reopened).locator('.ink-layer'))).toBe(0)
+    expect(await stored(reopened)).toHaveLength(1)
+    await draw(reopened, 0.04)
+    await reconstruct(reopened).click()
+    await expect(reopened.locator('.local-indicator')).toHaveText('Session saved')
+    const attempts = await stored(reopened)
+    expect(attempts).toHaveLength(2)
+    const retry = attempts.find((s) => s.id !== session.id)!
+    expect(retry.retryOf).toBe(session.id)
+    expect(retry.trace).toEqual(session.trace)
+    expect(retry.reconstruct).toHaveLength(1)
+    await openBackup(reopened)
+    const path = await downloadedFile(reopened, 'Download backup')
+    const fresh = await browser.newContext({ baseURL: reopened.url(), viewport })
+    try {
+      const restored = await fresh.newPage()
+      await restored.goto('/')
+      await restoreFile(restored, path)
+      expect(await stored(restored)).toEqual(attempts)
+      await restored.getByRole('button', { name: 'Session history', exact: true }).click()
+      await restored.getByRole('button', { name: 'Open comparison' }).first().click()
+      await restored.getByRole('switch', { name: 'Reveal original' }).click()
+      await expect(main(restored).locator('img')).toHaveJSProperty('naturalWidth', 768)
+      const scale = restored.getByRole('slider', { name: 'Reconstruction scale' })
+      await scale.press('End')
+      await expect.poll(async () => (await stored(restored)).find((s) => s.id === retry.id)?.comparison.reconstructionScale).toBe(400)
+      await restored.getByRole('button', { name: 'Reference library', exact: true }).click()
+      await restored.getByRole('button', { name: 'My library', exact: true }).click()
+      await expect(restored.getByRole('button', { name: 'View Study shell' })).toBeVisible()
+    } finally {
+      await fresh.close()
+    }
   })
 }
 
-test('a failed stroke save keeps the ink available for retry', async ({ page }) => {
+test('a failed stroke save keeps editable ink available for download and retry', async ({ page, browser }) => {
   await page.addInitScript(() => {
     const put = IDBObjectStore.prototype.put
     IDBObjectStore.prototype.put = function (...args) {
@@ -634,6 +692,18 @@ test('a failed stroke save keeps the ink available for retry', async ({ page }) 
   await draw(page)
   await expect(page.locator('.local-indicator')).toHaveText('Save failed')
   await expect.poll(() => pixels(main(page).locator('.ink-layer'))).toBeGreaterThan(0)
+  const path = await downloadedFile(page, 'Download this study')
+  const fresh = await browser.newContext({ baseURL: page.url() })
+  try {
+    const restored = await fresh.newPage()
+    await restored.goto('/')
+    await restoreFile(restored, path)
+    await expect.poll(() => pixels(main(restored).locator('.ink-layer'))).toBeGreaterThan(0)
+    await restored.getByRole('button', { name: 'Undo', exact: true }).click()
+    await expect.poll(() => pixels(main(restored).locator('.ink-layer'))).toBe(0)
+  } finally {
+    await fresh.close()
+  }
   await page.evaluate(() => sessionStorage.setItem('allow-desk-write', '1'))
   await page.getByRole('button', { name: 'Retry save' }).click()
   await expect(page.locator('.local-indicator')).toHaveText('Saved on this device')
@@ -690,4 +760,36 @@ test('upgrading an existing studio preserves its saved references', async ({ pag
   await page.getByRole('button', { name: 'Reference library', exact: true }).click()
   await page.getByRole('button', { name: 'My library', exact: true }).click()
   await expect(page.getByRole('button', { name: 'View My saved shell' })).toBeVisible()
+})
+
+test('invalid backups and failed restore transactions preserve existing studies', async ({ page }) => {
+  await page.goto('/')
+  await draw(page)
+  await next(page)
+  await reconstruct(page).click()
+  const existing = await sessionReady(page)
+  await openBackup(page)
+  const path = await downloadedFile(page, 'Download backup')
+  const archive = JSON.parse(readFileSync(path, 'utf8'))
+  const input = page.getByLabel('Backup file')
+  const file = (data: unknown) => ({
+    name: 'studio.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)),
+  })
+  await input.setInputFiles(file({ ...archive, images: [] }))
+  await expect(page.getByRole('dialog')).toContainText('could not be opened')
+  await expect(page.getByRole('button', { name: 'Restore studies' })).toHaveCount(0)
+  expect(await stored(page)).toEqual([existing])
+  const incoming = ['first-import', 'last-import'].map((id) => ({ ...archive.sessions[0], id }))
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === 'sessions' && args[0].id === 'last-import')
+        throw new DOMException('Simulated full storage', 'QuotaExceededError')
+      return put.apply(this, args)
+    }
+  })
+  await input.setInputFiles(file({ ...archive, sessions: incoming }))
+  await page.getByRole('button', { name: 'Restore studies' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Restore failed')
+  expect(await stored(page)).toEqual([existing])
 })
