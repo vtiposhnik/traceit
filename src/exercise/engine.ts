@@ -96,6 +96,11 @@ function stopClock(exercise: Exercise, now: number): Exercise {
     elapsed: { ...exercise.elapsed, [exercise.stage]: stageTime(exercise, now) },
   }
 }
+export function deskSnapshot(exercise: Exercise, now: number): Exercise {
+  const stopped = stopClock(exercise, now)
+  return stopped.stage === 'transfer' ? { ...stopped, stage: 'reconstruct' } : stopped
+}
+
 type Action =
   | { type: 'start'; reference: Reference; config: PracticeConfig }
   | { type: 'review'; session: Session }

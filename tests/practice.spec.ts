@@ -35,7 +35,7 @@ async function pixels(canvas: Locator) {
 async function stored(page: Page): Promise<Session[]> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open('traceit-studio', 1)
+      const req = indexedDB.open('traceit-studio')
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
     })
@@ -569,4 +569,125 @@ test('Compare scales only reconstruction and links the two Separate cameras', as
   await expect(scale).toHaveValue('100')
   await expect.poll(() => pixels(overlay)).toBe(fullPixels)
   expect((await stored(page))[0].reconstruct).toEqual(session.reconstruct)
+})
+
+for (const viewport of [{ width: 1360, height: 900 }, { width: 820, height: 1180 }]) {
+  test(`resumes an uploaded study after tab close at width ${viewport.width}`, async ({ page, context }) => {
+    await page.setViewportSize(viewport)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Reference library', exact: true }).click()
+    await page.getByRole('button', { name: 'My library', exact: true }).click()
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Add images', exact: true }).click()
+    await (await chooser).setFiles({
+      name: 'Study shell.webp',
+      mimeType: 'image/webp',
+      buffer: readFileSync('public/studies/nautilus-shell.webp'),
+    })
+    await page.getByRole('button', { name: 'View Study shell', exact: true }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Use reference' }).click()
+    await page.getByRole('button', { name: 'Start practice' }).click()
+    await draw(page)
+    await next(page)
+    await expect(reconstruct(page)).toBeEnabled()
+    await draw(page)
+    await draw(page, 0.08)
+    await page.getByRole('button', { name: 'Clear drawing' }).click()
+    await page.getByRole('button', { name: 'Clear layer' }).click()
+    await expect.poll(() => pixels(main(page).locator('.ink-layer'))).toBe(0)
+    await page.getByRole('button', { name: 'Undo', exact: true }).click()
+    await expect.poll(() => pixels(main(page).locator('.ink-layer'))).toBeGreaterThan(0)
+    await expect(page.getByRole('status').filter({ hasText: 'Saved on this device' })).toBeVisible()
+    await page.close()
+    const reopened = await context.newPage()
+    await reopened.setViewportSize(viewport)
+    await reopened.goto('/')
+    await expect(reconstruct(reopened)).toBeEnabled()
+    await expect.poll(() => pixels(main(reopened).locator('.ink-layer'))).toBeGreaterThan(0)
+    await reopened.getByRole('button', { name: 'Redo', exact: true }).click()
+    await expect.poll(() => pixels(main(reopened).locator('.ink-layer'))).toBe(0)
+    await reopened.getByRole('button', { name: 'Undo', exact: true }).click()
+    await draw(reopened, -0.08)
+    await reconstruct(reopened).click()
+    const session = await sessionReady(reopened)
+    expect(session.trace).toHaveLength(1)
+    expect(session.reconstruct).toHaveLength(3)
+    expect(session.reference.title).toBe('Study shell')
+    await reopened.getByRole('switch', { name: 'Reveal original' }).click()
+    await expect(main(reopened).locator('img')).toHaveJSProperty('naturalWidth', 768)
+    await reopened.reload()
+    await expect(reopened.getByRole('button', { name: 'Finish tracing' })).toBeVisible()
+    expect(await stored(reopened)).toHaveLength(1)
+  })
+}
+
+test('a failed stroke save keeps the ink available for retry', async ({ page }) => {
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === 'desk' && !sessionStorage.getItem('allow-desk-write'))
+        throw new DOMException('Full storage', 'QuotaExceededError')
+      return put.apply(this, args)
+    }
+  })
+  await page.goto('/')
+  await draw(page)
+  await expect(page.locator('.local-indicator')).toHaveText('Save failed')
+  await expect.poll(() => pixels(main(page).locator('.ink-layer'))).toBeGreaterThan(0)
+  await page.evaluate(() => sessionStorage.setItem('allow-desk-write', '1'))
+  await page.getByRole('button', { name: 'Retry save' }).click()
+  await expect(page.locator('.local-indicator')).toHaveText('Saved on this device')
+  await page.reload()
+  await expect.poll(() => pixels(main(page).locator('.ink-layer'))).toBeGreaterThan(0)
+})
+
+test('a stale tab cannot silently replace newer drawings', async ({ page, context }) => {
+  await page.goto('/')
+  await draw(page)
+  await expect(page.locator('.local-indicator')).toHaveText('Saved on this device')
+  const second = await context.newPage()
+  await second.goto('/')
+  await expect.poll(() => pixels(main(second).locator('.ink-layer'))).toBeGreaterThan(0)
+  await draw(page, 0.08)
+  await expect(page.locator('.local-indicator')).toHaveText('Saved on this device')
+  await draw(second, -0.08)
+  await expect(second.getByRole('alert')).toContainText('Another tab changed the saved desk')
+  second.once('dialog', (dialog) => dialog.dismiss())
+  await second.getByRole('button', { name: 'Use this tab’s study' }).click()
+  await expect(second.locator('.local-indicator')).toHaveText('Save failed')
+  second.once('dialog', (dialog) => dialog.accept())
+  await second.getByRole('button', { name: 'Use this tab’s study' }).click()
+  await expect(second.locator('.local-indicator')).toHaveText('Saved on this device')
+  await second.reload()
+  await next(second)
+  await reconstruct(second).click()
+  const session = await sessionReady(second)
+  expect(session.trace).toHaveLength(2)
+  expect(session.trace[1].points[0][0]).toBeLessThan(session.trace[0].points[0][0])
+})
+
+test('upgrading an existing studio preserves its saved references', async ({ page }) => {
+  // Seed the previous schema on the app origin before loading the new studio.
+  await page.goto('/mark.svg')
+  await page.evaluate(async () => {
+    const req = indexedDB.open('traceit-studio', 1)
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore('sessions', { keyPath: 'id' })
+      const library = req.result.createObjectStore('references', { keyPath: 'id' })
+      library.put({
+        id: 'legacy-reference', source: 'upload', title: 'My saved shell', subject: 'Study',
+        width: 768, height: 512, url: '/studies/nautilus-shell.webp', creator: 'Artist', license: '',
+      })
+    }
+    await new Promise<void>((resolve, reject) => {
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => { req.result.close(); resolve() }
+    })
+  })
+  await page.goto('/')
+  await draw(page)
+  await expect(page.locator('.local-indicator')).toHaveText('Saved on this device')
+  await page.getByRole('button', { name: 'Reference library', exact: true }).click()
+  await page.getByRole('button', { name: 'My library', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'View My saved shell' })).toBeVisible()
 })
