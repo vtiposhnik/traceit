@@ -254,6 +254,7 @@ export function Workspace({
                   {
                     title: 'Tracing',
                     ref: separateTrace,
+                    peer: separateReconstruction,
                     strokes: trace,
                     color: ink.trace,
                     alpha: comparison.traceVisible ? comparison.traceOpacity : 0,
@@ -261,6 +262,7 @@ export function Workspace({
                   {
                     title: 'Reconstruction',
                     ref: separateReconstruction,
+                    peer: separateTrace,
                     strokes: reconstruction,
                     color: ink.reconstruct,
                     alpha: comparison.reconstructionVisible ? comparison.reconstructionOpacity : 0,
@@ -271,6 +273,7 @@ export function Workspace({
                     <Surface
                       {...common}
                       ref={v.ref}
+                      onViewChange={comparison.linkedViews ? (view) => v.peer.current?.setSheetView(view) : undefined}
                       label={v.title + ' separate view'}
                       variant="split"
                       tool="pan"
@@ -292,6 +295,7 @@ export function Workspace({
                 strokes={active}
                 overlay={review ? reconstruction : undefined}
                 alignment={comparison.offset}
+                overlayScale={comparison.reconstructionScale / 100}
                 onAlign={(offset) => adjust({ offset })}
                 color={review ? ink.trace : ink.pencil}
                 baseOpacity={review ? (comparison.traceVisible ? comparison.traceOpacity / 100 : 0) : 1}
@@ -498,6 +502,28 @@ export function Workspace({
                   Separate
                 </button>
               </div>
+              {separate ? (
+                <Toggle
+                  label="Link pan and zoom"
+                  on={comparison.linkedViews}
+                  change={() => {
+                    if (!comparison.linkedViews) {
+                      const view = separateTrace.current?.sheetView()
+                      if (view) separateReconstruction.current?.setSheetView(view)
+                    }
+                    adjust({ linkedViews: !comparison.linkedViews })
+                  }}
+                />
+              ) : (
+                <Range
+                  label="Reconstruction scale"
+                  value={comparison.reconstructionScale}
+                  min={25}
+                  max={400}
+                  unit="%"
+                  onChange={(reconstructionScale) => adjust({ reconstructionScale })}
+                />
+              )}
               <div className="layer-settings">
                 {(['trace', 'reconstruct'] as const).map((key) => {
                   const first = key === 'trace'
@@ -538,7 +564,7 @@ export function Workspace({
                 onClick={() => {
                   separateTrace.current?.fit()
                   separateReconstruction.current?.fit()
-                  adjust({ offset: { x: 0, y: 0 } })
+                  adjust({ offset: { x: 0, y: 0 }, reconstructionScale: 100 })
                 }}
               >
                 <RotateCcw size={14} />

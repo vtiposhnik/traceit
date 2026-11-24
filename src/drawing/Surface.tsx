@@ -1,10 +1,14 @@
 import { forwardRef, useImperativeHandle, useLayoutEffect, useRef, type CSSProperties } from 'react'
 import { SurfaceEngine, type SurfaceOptions } from './surface-engine'
 
+import type { View } from './model'
+
 export interface SurfaceHandle {
   finish(): void
   fit(): void
   zoom(value: number): void
+  sheetView(): View | undefined
+  setSheetView(view: View): void
   paperBox(): DOMRect | undefined
 }
 interface Props extends SurfaceOptions {
@@ -49,6 +53,8 @@ export const Surface = forwardRef<SurfaceHandle, Props>(function Surface(props, 
       finish: () => engine.current?.finish(),
       fit: () => engine.current?.fit(),
       zoom: (value) => engine.current?.setZoom(value),
+      sheetView: () => engine.current?.sheetView(),
+      setSheetView: (view) => engine.current?.setSheetView(view),
       paperBox: () => engine.current?.paperBox(),
     }),
     [],

@@ -26,6 +26,8 @@ export interface Comparison {
   originalVisible: boolean
   traceOpacity: number
   reconstructionOpacity: number
+  reconstructionScale: number
+  linkedViews: boolean
   separate: boolean
 }
 export interface Session {
@@ -74,6 +76,8 @@ export function newExercise(reference: Reference, config: PracticeConfig): Exerc
       traceOpacity: 80,
       reconstructionOpacity: 90,
       separate: false,
+      reconstructionScale: 100,
+      linkedViews: true,
     },
   }
 }
@@ -111,6 +115,11 @@ export function exerciseReducer(state: Exercise, action: Action): Exercise {
       const s = action.session
       return {
         ...s,
+        comparison: {
+          ...s.comparison,
+          reconstructionScale: s.comparison.reconstructionScale ?? 100,
+          linkedViews: s.comparison.linkedViews ?? true,
+        },
         stage: 'compare',
         runningSince: null,
         trace: { edits: s.trace, cursor: s.trace.length },

@@ -7,6 +7,7 @@ export interface SurfaceOptions {
   strokes: Stroke[]
   overlay?: Stroke[]
   color?: string
+  overlayScale?: number
   alignment?: Offset
   tool: Tool
   size: number
@@ -14,6 +15,7 @@ export interface SurfaceOptions {
   variant?: 'desk' | 'panel' | 'split'
   onStroke?: (stroke: Stroke, milliseconds: number) => void
   onAlign?: (offset: Offset) => void
+  onViewChange?: (view: View) => void
   onZoom?: (zoom: number) => void
 }
 interface Elements {
@@ -102,6 +104,20 @@ export class SurfaceEngine {
     return new DOMRect(x, y, width * scale, height * scale)
   }
 
+  // Exchange pan offsets in sheet units so differently sized panes show the same region.
+  sheetView(): View {
+    const { scale } = this.geometry()
+    return { x: this.view.x / scale, y: this.view.y / scale, zoom: this.view.zoom }
+  }
+
+  setSheetView(view: View) {
+    this.view.zoom = view.zoom
+    const { scale } = this.geometry()
+    this.view = { x: view.x * scale, y: view.y * scale, zoom: view.zoom }
+    this.baseDirty = true
+    this.schedule()
+  }
+
   setZoom(value: number, anchor?: Offset) {
     if (this.gesture) return
     const before = this.geometry()
@@ -114,6 +130,7 @@ export class SurfaceEngine {
     const ratio = after.scale / before.scale
     this.view.x += at.x - (at.x - before.x) * ratio - after.x
     this.view.y += at.y - (at.y - before.y) * ratio - after.y
+    this.options.onViewChange?.(this.sheetView())
     this.options.onZoom?.(this.view.zoom)
     this.baseDirty = true
     this.schedule()
@@ -191,6 +208,7 @@ export class SurfaceEngine {
       }
       if (active.kind === 'pan') {
         this.view = { ...this.view, ...offset }
+        this.options.onViewChange?.(this.sheetView())
         this.baseDirty = true
       } else this.offset = offset
     }
@@ -333,6 +351,9 @@ export class SurfaceEngine {
       project(top)
       const offset = this.offset ?? this.options.alignment
       if (offset) top.translate(offset.x, offset.y)
+      const scale = this.options.overlayScale ?? 1
+      top.translate((rect.width * (1 - scale)) / 2, (rect.height * (1 - scale)) / 2)
+      top.scale(scale, scale)
       for (const stroke of this.options.overlay) paintStroke(top, stroke, ink.reconstruct)
       top.restore()
     }
