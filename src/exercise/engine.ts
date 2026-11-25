@@ -32,6 +32,7 @@ export interface Comparison {
 }
 export interface Session {
   id: string
+  retryOf?: string
   reference: Reference
   config: PracticeConfig
   trace: Stroke[]
@@ -43,6 +44,7 @@ export interface Session {
 }
 export interface Exercise {
   id: string
+  retryOf?: string
   reference: Reference
   config: PracticeConfig
   stage: Stage
@@ -96,9 +98,15 @@ function stopClock(exercise: Exercise, now: number): Exercise {
     elapsed: { ...exercise.elapsed, [exercise.stage]: stageTime(exercise, now) },
   }
 }
+export function deskSnapshot(exercise: Exercise, now: number): Exercise {
+  const stopped = stopClock(exercise, now)
+  return stopped.stage === 'transfer' ? { ...stopped, stage: 'reconstruct' } : stopped
+}
+
 type Action =
   | { type: 'start'; reference: Reference; config: PracticeConfig }
   | { type: 'review'; session: Session }
+  | { type: 'retry-reconstruction' }
   | { type: 'clock'; run: boolean; now: number }
   | { type: 'stroke'; id: string; stage: DrawingStage; stroke: Stroke; ms: number }
   | { type: 'undo' | 'redo' | 'clear' }
@@ -111,6 +119,16 @@ export function exerciseReducer(state: Exercise, action: Action): Exercise {
   switch (action.type) {
     case 'start':
       return newExercise(action.reference, action.config)
+    case 'retry-reconstruction':
+      if (state.stage !== 'compare') return state
+      return {
+        ...newExercise(state.reference, state.config),
+        retryOf: state.id,
+        stage: 'reconstruct',
+        trace: state.trace,
+        elapsed: { trace: state.elapsed.trace, reconstruct: 0 },
+        drawingTime: { trace: state.drawingTime.trace, reconstruct: 0 },
+      }
     case 'review': {
       const s = action.session
       return {
@@ -171,6 +189,7 @@ export function toSession(state: Exercise): Session {
     throw new Error('The exercise is still in progress.')
   return {
     id: state.id,
+    ...(state.retryOf && { retryOf: state.retryOf }),
     reference: state.reference,
     config: state.config,
     trace: visibleStrokes(state.trace),

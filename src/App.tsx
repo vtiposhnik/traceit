@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import {
   ArrowRight,
   BookOpen,
@@ -14,19 +14,22 @@ import {
 } from 'lucide-react'
 import { type SurfaceHandle } from './drawing/Surface'
 import {
+  deskSnapshot,
   exerciseReducer,
   formatTime,
   isDrawing,
   newExercise,
   stageTime,
   toSession,
+  type Exercise,
   type PracticeConfig,
   type Session,
 } from './exercise/engine'
 import { transferTime } from './exercise/Transfer'
 import { collection } from './library/collection'
 import type { Reference } from './library/reference'
-import { studioStore } from './storage/studio'
+import { currentStudy, downloadBackup } from './storage/backup'
+import { DeskConflict, studioStore } from './storage/studio'
 import { IconButton, Modal, ReferenceThumb } from './ui/components'
 import { SessionHistory } from './ui/History'
 import { Library } from './ui/Library'
@@ -41,18 +44,62 @@ type Dialog =
   | null
 
 export function App() {
+  const [initial, setInitial] = useState<Exercise | null>()
+  const [readError, setReadError] = useState(false)
+  useEffect(() => {
+    let live = true
+    studioStore.readDesk().then(
+      (draft) => {
+        if (live) setInitial(draft)
+      },
+      () => {
+        if (live) {
+          setReadError(true)
+          setInitial(null)
+        }
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [])
+  if (initial === undefined) return <p role="status">Opening your desk…</p>
+  return <Studio initial={initial} readError={readError} />
+}
+
+interface DeskState {
+  exercise: Exercise
+  checkpoint: Exercise | null
+}
+
+function deskReducer(state: DeskState, action: Parameters<typeof exerciseReducer>[1]): DeskState {
+  const exercise = exerciseReducer(state.exercise, action)
+  if (exercise === state.exercise) return state
+  // Starting the clock on mount must not claim the saved desk from another open tab.
+  const checkpoint = action.type === 'clock' && action.run ? state.checkpoint : exercise
+  return { exercise, checkpoint }
+}
+
+function Studio({ initial, readError }: { initial: Exercise | null; readError: boolean }) {
   const [page, setPage] = useState<Page>('workspace')
-  const [exercise, dispatch] = useReducer(exerciseReducer, undefined, () =>
-    newExercise(collection[0], { mode: 'free', seconds: 60 }),
-  )
+  const [{ exercise, checkpoint }, dispatch] = useReducer(deskReducer, initial, (draft) => ({
+    exercise: draft ?? newExercise(collection[0], { mode: 'free', seconds: 60 }),
+    checkpoint: null,
+  }))
   const [dialog, setDialog] = useState<Dialog>(null)
   const [paused, setPaused] = useState(false)
   const [visible, setVisible] = useState(!document.hidden)
-  const [saveState, setSaveState] = useState<'local' | 'saving' | 'saved' | 'error'>('local')
-  const [error, setError] = useState('')
+  const [saveState, setSaveState] = useState<'local' | 'saving' | 'saved' | 'error'>(
+    initial ? 'saved' : 'local',
+  )
+  const [error, setError] = useState(readError ? 'Your browser could not read the saved desk.' : '')
+  const [keepDesk, setKeepDesk] = useState(initial !== null)
+  const [retry, setRetry] = useState(0)
+  const [conflict, setConflict] = useState(false)
   const board = useRef<SurfaceHandle>(null)
   const from = useRef<DOMRect | null>(null)
-  const hasWork = isDrawing(exercise.stage) && (exercise.trace.cursor > 0 || exercise.reconstruct.cursor > 0)
+  const hasWork =
+    exercise.stage !== 'compare' && (keepDesk || exercise.stage !== 'trace' || exercise.trace.edits.length > 0)
   const stage = exercise.stage
   const advance = useCallback(() => {
     if (!isDrawing(stage)) return
@@ -91,30 +138,54 @@ export function App() {
     )
     return () => clearTimeout(timeout)
   }, [stage, exercise.id])
-  useEffect(() => {
-    if (exercise.stage !== 'compare') return
+  useLayoutEffect(() => {
+    if (!checkpoint || (!hasWork && checkpoint.stage !== 'compare')) return
     let live = true
     setSaveState('saving')
-    studioStore
-      .saveSession(toSession(exercise))
+    const save =
+      checkpoint.stage === 'compare'
+        ? studioStore.saveSession(toSession(checkpoint))
+        : studioStore.saveDesk(deskSnapshot(checkpoint, performance.now()))
+    save
       .then(() => {
         if (live) {
           setSaveState('saved')
           setError('')
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (live) {
-          setSaveState('error')
-          setError(
-            'Your browser could not save this session. Free some local storage, then use Finish session to retry.',
-          )
+          reportSaveFailure(err)
         }
       })
     return () => {
       live = false
     }
-  }, [exercise])
+  }, [checkpoint, hasWork, retry])
+
+  function reportSaveFailure(err: unknown) {
+    const changedElsewhere = err instanceof DeskConflict
+    setConflict(changedElsewhere)
+    setSaveState('error')
+    setError(
+      changedElsewhere
+        ? 'Another tab changed the saved desk. Your drawings are still available in this tab.'
+        : 'Your browser could not save the latest changes. Your drawings are still on the desk. Free some local storage and retry.',
+    )
+  }
+
+  async function retrySave() {
+    if (conflict) {
+      if (!window.confirm('Replace the other tab’s saved desk with the study in this tab?')) return
+      try {
+        await studioStore.readDesk()
+      } catch (err) {
+        reportSaveFailure(err)
+        return
+      }
+    }
+    setRetry((n) => n + 1)
+  }
 
   function navigate(next: Page) {
     board.current?.finish()
@@ -130,6 +201,7 @@ export function App() {
     setPaused(false)
     setError('')
     setSaveState('local')
+    setKeepDesk(true)
     from.current = null
     dispatch({ type: 'start', reference: ref, config })
     navigate('workspace')
@@ -147,11 +219,8 @@ export function App() {
       setError('')
       setSaveState('saved')
       setDialog({ kind: 'done' })
-    } catch {
-      setSaveState('error')
-      setError(
-        'Local storage is unavailable. The drawings are still on your desk. Free space and try Finish session again.',
-      )
+    } catch (err) {
+      reportSaveFailure(err)
     }
   }
   function pause() {
@@ -203,7 +272,7 @@ export function App() {
               {saveState === 'saving'
                 ? 'Saving…'
                 : saveState === 'saved'
-                  ? 'Session saved'
+                  ? (stage === 'compare' ? 'Session saved' : 'Saved on this device')
                   : saveState === 'error'
                     ? 'Save failed'
                     : 'Local studio'}
@@ -225,6 +294,16 @@ export function App() {
         {error && (
           <div className="global-error" role="alert">
             <span>{error}</span>
+            {saveState === 'error' && (
+              <button className="button" onClick={() => void retrySave()}>
+                {conflict ? 'Use this tab’s study' : 'Retry save'}
+              </button>
+            )}
+            {saveState === 'error' && (
+              <button className="button" onClick={() => {
+                void downloadBackup(currentStudy(exercise)).catch(() => setError('The study download failed. Please try again.'))
+              }}>Download this study</button>
+            )}
             <IconButton label="Dismiss message" onClick={() => setError('')}>
               <X size={16} />
             </IconButton>
@@ -241,6 +320,7 @@ export function App() {
             pause={pause}
             restart={() => setDialog({ kind: 'restart' })}
             advance={advance}
+            comparisonSaved={saveState === 'saved'}
             complete={() => void complete()}
             configure={configure}
             library={() => navigate('library')}
@@ -251,6 +331,7 @@ export function App() {
         {page === 'library' && <Library select={configure} />}
         {page === 'history' && (
           <SessionHistory
+            unsaved={saveState === 'error' || saveState === 'saving' ? exercise : undefined}
             open={(session) => (hasWork ? setDialog({ kind: 'review', session }) : openReview(session))}
             library={() => navigate('library')}
           />
@@ -347,7 +428,7 @@ export function App() {
           </dl>
           <p className="device-note">
             <HardDrive size={15} />
-            Your uploads and completed sessions are stored in this browser.
+            Your unfinished study, uploads, and completed sessions are saved in this browser.
           </p>
         </Modal>
       )}
