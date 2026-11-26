@@ -1,6 +1,14 @@
 export type Point = [x: number, y: number, pressure: number]
 export type Tool = 'pencil' | 'eraser' | 'pan' | 'move'
+export const valueLevels = { light: 222, middle: 138, dark: 52 } as const
+export type PaintValue = keyof typeof valueLevels
+export function valueColor(value: PaintValue) {
+  const level = valueLevels[value]
+  return `rgb(${level}, ${level}, ${level})`
+}
+
 export interface Stroke {
+  value?: PaintValue
   tool: 'pencil' | 'eraser' | 'clear'
   points: Point[]
   size: number

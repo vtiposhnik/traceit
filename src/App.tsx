@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { type SurfaceHandle } from './drawing/Surface'
 import {
+  modeLabels,
   deskSnapshot,
   exerciseReducer,
   formatTime,
@@ -34,6 +35,7 @@ import { IconButton, Modal, ReferenceThumb } from './ui/components'
 import { SessionHistory } from './ui/History'
 import { Library } from './ui/Library'
 import { PracticeSetup } from './ui/PracticeSetup'
+import { ValueStudy } from './ui/ValueStudy'
 import { Workspace } from './ui/Workspace'
 
 type Page = 'workspace' | 'library' | 'history'
@@ -104,9 +106,9 @@ function Studio({ initial, readError }: { initial: Exercise | null; readError: b
   const advance = useCallback(() => {
     if (!isDrawing(stage)) return
     board.current?.finish()
-    if (stage === 'trace') from.current = board.current?.paperBox() ?? null
+    if (stage === 'trace' && exercise.config.mode !== 'value') from.current = board.current?.paperBox() ?? null
     dispatch({ type: 'advance', id: exercise.id, stage, now: performance.now(), completedAt: Date.now() })
-  }, [stage, exercise.id])
+  }, [stage, exercise.id, exercise.config.mode])
   useEffect(() => {
     const changed = () => {
       if (document.hidden) board.current?.finish()
@@ -309,7 +311,20 @@ function Studio({ initial, readError }: { initial: Exercise | null; readError: b
             </IconButton>
           </div>
         )}
-        {page === 'workspace' && (
+        {page === 'workspace' && exercise.config.mode === 'value' && (
+          <ValueStudy
+            key={exercise.id}
+            exercise={exercise}
+            board={board}
+            dispatch={dispatch}
+            blocked={!!dialog || !visible}
+            configure={() => configure(exercise.reference)}
+            finish={advance}
+            history={() => navigate('history')}
+            library={() => navigate('library')}
+          />
+        )}
+        {page === 'workspace' && exercise.config.mode !== 'value' && (
           <Workspace
             key={exercise.id}
             exercise={exercise}
@@ -383,36 +398,44 @@ function Studio({ initial, readError }: { initial: Exercise | null; readError: b
         </Modal>
       )}
       {dialog?.kind === 'review' && (
-        <Modal title="Open saved comparison?" onClose={() => setDialog(null)}>
+        <Modal title={dialog.session.config.mode === 'value' ? 'Open saved value study?' : 'Open saved comparison?'} onClose={() => setDialog(null)}>
           <p>This replaces the unfinished exercise on your desk.</p>
           <div className="modal-actions">
             <button className="button" onClick={() => setDialog(null)}>
               Cancel
             </button>
             <button className="button primary" onClick={() => openReview(dialog.session)}>
-              Open comparison
+              {dialog.session.config.mode === 'value' ? 'Open value study' : 'Open comparison'}
             </button>
           </div>
         </Modal>
       )}
       {dialog?.kind === 'help' && (
         <Modal title="Practice guide" onClose={() => setDialog(null)}>
-          <ol className="guide-steps">
-            <li>
-              <strong>Trace</strong> Draw over a reference to study its structure.
-            </li>
-            <li>
-              <strong>Reconstruct</strong> Redraw it using your tracing as a guide.
-            </li>
-            <li>
-              <strong>Compare</strong> Overlay the drawings and look for differences.
-            </li>
-          </ol>
+          {exercise.config.mode === 'value' ? (
+            <p>
+              Choose a paint value and block in the largest shapes beside the reference. Switch to 3 values
+              to check your choices. Finish the study to keep it in session history.
+            </p>
+          ) : (
+            <ol className="guide-steps">
+              <li>
+                <strong>Trace</strong> Draw over a reference to study its structure.
+              </li>
+              <li>
+                <strong>Reconstruct</strong> Redraw it using your tracing as a guide.
+              </li>
+              <li>
+                <strong>Compare</strong> Overlay the drawings and look for differences.
+              </li>
+            </ol>
+          )}
           <h3 className="shortcuts-title">Desk shortcuts</h3>
           <dl className="shortcuts">
             {[
-              ['Pencil / Eraser / Pan', 'B / E / H'],
-              ['Move reconstruction', 'V'],
+              ...(exercise.config.mode === 'value'
+                ? [['Brush / Eraser', 'B / E']]
+                : [['Pencil / Eraser / Pan', 'B / E / H'], ['Move reconstruction', 'V']]),
               ['Pan the sheet', 'Space + drag'],
               ['Zoom at the pointer', 'Scroll'],
               ['Undo', 'Ctrl / ⌘ + Z'],
@@ -441,7 +464,7 @@ function Studio({ initial, readError }: { initial: Exercise | null; readError: b
           <div className="setup-reference">
             <ReferenceThumb item={exercise.reference} />
             <div>
-              <small>{exercise.config.mode === 'free' ? 'Free practice' : 'Timed challenge'}</small>
+              <small>{modeLabels[exercise.config.mode]}</small>
               <h3>{exercise.reference.title}</h3>
             </div>
           </div>

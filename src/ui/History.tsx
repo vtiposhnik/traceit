@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, History as HistoryIcon } from 'lucide-react'
-import { formatTime, type Exercise, type Session } from '../exercise/engine'
+import { modeLabels, formatTime, type Exercise, type Session } from '../exercise/engine'
 import { studioStore } from '../storage/studio'
 import { BackupDialog } from './StudioBackup'
 import { ReferenceThumb } from './components'
@@ -67,12 +67,12 @@ export function SessionHistory({ open, library, unsaved }: {
                 <h2>{s.reference.title}</h2>
                 <p>
                   {s.retryOf && 'Reconstruction retry · '}
-                  {s.config.mode === 'free' ? 'Free practice' : 'Timed challenge'} ·{' '}
+                  {modeLabels[s.config.mode]} ·{' '}
                   {formatTime((s.elapsed.trace + s.elapsed.reconstruct) / 1000)} total
                 </p>
               </div>
               <button className="button" onClick={() => open(s)}>
-                Open comparison <ArrowRight size={15} />
+                {s.config.mode === 'value' ? 'Open value study' : 'Open comparison'} <ArrowRight size={15} />
               </button>
             </article>
           ))}

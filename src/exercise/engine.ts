@@ -12,9 +12,10 @@ import type { Reference } from '../library/reference'
 export type DrawingStage = 'trace' | 'reconstruct'
 export type Stage = DrawingStage | 'transfer' | 'compare'
 export interface PracticeConfig {
-  mode: 'free' | 'timed'
+  mode: 'free' | 'timed' | 'value'
   seconds: number
 }
+export const modeLabels = { free: 'Free practice', timed: 'Timed challenge', value: 'Value Breakdown' }
 interface Durations {
   trace: number
   reconstruct: number
@@ -33,6 +34,7 @@ export interface Comparison {
 export interface Session {
   id: string
   retryOf?: string
+  groupedValues?: boolean
   reference: Reference
   config: PracticeConfig
   trace: Stroke[]
@@ -45,6 +47,7 @@ export interface Session {
 export interface Exercise {
   id: string
   retryOf?: string
+  groupedValues?: boolean
   reference: Reference
   config: PracticeConfig
   stage: Stage
@@ -107,6 +110,7 @@ type Action =
   | { type: 'start'; reference: Reference; config: PracticeConfig }
   | { type: 'review'; session: Session }
   | { type: 'retry-reconstruction' }
+  | { type: 'value-view'; grouped: boolean }
   | { type: 'clock'; run: boolean; now: number }
   | { type: 'stroke'; id: string; stage: DrawingStage; stroke: Stroke; ms: number }
   | { type: 'undo' | 'redo' | 'clear' }
@@ -119,8 +123,10 @@ export function exerciseReducer(state: Exercise, action: Action): Exercise {
   switch (action.type) {
     case 'start':
       return newExercise(action.reference, action.config)
+    case 'value-view':
+      return { ...state, groupedValues: action.grouped }
     case 'retry-reconstruction':
-      if (state.stage !== 'compare') return state
+      if (state.stage !== 'compare' || state.config.mode === 'value') return state
       return {
         ...newExercise(state.reference, state.config),
         retryOf: state.id,
@@ -174,7 +180,7 @@ export function exerciseReducer(state: Exercise, action: Action): Exercise {
     case 'advance': {
       if (action.stage !== state.stage) return state
       const next = stopClock(state, action.now)
-      return state.stage === 'trace'
+      return state.stage === 'trace' && state.config.mode !== 'value'
         ? { ...next, stage: 'transfer' }
         : { ...next, stage: 'compare', completedAt: action.completedAt }
     }
@@ -189,6 +195,7 @@ export function toSession(state: Exercise): Session {
     throw new Error('The exercise is still in progress.')
   return {
     id: state.id,
+    ...(state.config.mode === 'value' && { groupedValues: !!state.groupedValues }),
     ...(state.retryOf && { retryOf: state.retryOf }),
     reference: state.reference,
     config: state.config,
