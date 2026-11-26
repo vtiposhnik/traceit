@@ -1,8 +1,14 @@
 import { useState } from 'react'
-import { ArrowRight, Check, Infinity as InfinityIcon, Timer } from 'lucide-react'
+import { ArrowRight, Check, Infinity as InfinityIcon, Contrast, Timer } from 'lucide-react'
 import { Modal, ReferenceThumb } from './components'
-import type { PracticeConfig } from '../exercise/engine'
+import { modeLabels, type PracticeConfig } from '../exercise/engine'
 import { sourceNames, type Reference } from '../library/reference'
+
+const modes = [
+  { mode: 'free', icon: InfinityIcon, description: 'Move through each stage at your own pace.' },
+  { mode: 'timed', icon: Timer, description: 'Use the same time limit for both drawings.' },
+  { mode: 'value', icon: Contrast, description: 'Paint light, middle, and dark shapes beside a reference. No timer.' },
+] as const
 
 export function PracticeSetup({
   reference,
@@ -21,7 +27,7 @@ export function PracticeSetup({
   const [seconds, setSeconds] = useState(String(initial.seconds))
   const [custom, setCustom] = useState(![30, 60, 120, 300].includes(initial.seconds))
   const validDuration = Number.isInteger(Number(seconds)) && Number(seconds) >= 1 && Number(seconds) <= 3600
-  const valid = mode === 'free' || validDuration
+  const valid = mode !== 'timed' || validDuration
   return (
     <Modal title="Set up practice" onClose={onClose}>
       <div className="setup-reference">
@@ -33,17 +39,13 @@ export function PracticeSetup({
       </div>
       <fieldset className="mode-options">
         <legend>Practice mode</legend>
-        {(['free', 'timed'] as const).map((m) => (
+        {modes.map(({ mode: m, icon: Icon, description }) => (
           <label key={m} className={mode === m ? 'mode-card chosen' : 'mode-card'}>
             <input type="radio" name="practice-mode" checked={mode === m} onChange={() => setMode(m)} />
-            {m === 'free' ? <InfinityIcon /> : <Timer />}
+            <Icon />
             <span>
-              <strong>{m === 'free' ? 'Free practice' : 'Timed challenge'}</strong>
-              <small>
-                {m === 'free'
-                  ? 'Move through each stage at your own pace.'
-                  : 'Use the same time limit for both drawings.'}
-              </small>
+              <strong>{modeLabels[m]}</strong>
+              <small>{description}</small>
             </span>
             <i>{mode === m && <Check size={12} />}</i>
           </label>

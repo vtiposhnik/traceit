@@ -25,13 +25,14 @@ const reference = z.object({
   sourceUrl: creditUrl, licenseUrl: creditUrl, note: z.string().optional(), image: z.int().nonnegative(),
 })
 const stroke = z.object({
+  value: z.enum(['light', 'middle', 'dark']).optional(),
   tool: z.enum(['pencil', 'eraser', 'clear']), size: z.number().nonnegative(), simulatePressure: z.boolean(),
   points: z.array(z.tuple([z.number(), z.number(), z.number().min(0).max(1)])),
 })
 const history = z.object({ edits: z.array(stroke), cursor: z.int().nonnegative() })
   .refine((h) => h.cursor <= h.edits.length)
 const study = z.object({
-  id, retryOf: id.optional(), reference, config: z.object({ mode: z.enum(['free', 'timed']), seconds: z.int().min(1).max(3600) }),
+  id, retryOf: id.optional(), groupedValues: z.boolean().optional(), reference, config: z.object({ mode: z.enum(['free', 'timed', 'value']), seconds: z.int().min(1).max(3600) }),
   elapsed: times, drawingTime: times,
   comparison: z.object({
     offset: z.object({ x: z.number(), y: z.number() }), traceVisible: z.boolean(),
@@ -47,7 +48,7 @@ const archive = z.object({
   desk: study.extend({
     stage: z.enum(['trace', 'reconstruct']), runningSince: z.null(), completedAt: z.null(),
     trace: history, reconstruct: history,
-  }).nullable(),
+  }).refine((desk) => desk.config.mode !== 'value' || desk.stage === 'trace').nullable(),
 })
 
 async function referenceData(ref: Reference): Promise<string> {

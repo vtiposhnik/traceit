@@ -793,3 +793,80 @@ test('invalid backups and failed restore transactions preserve existing studies'
   await expect(page.getByRole('dialog')).toContainText('Restore failed')
   expect(await stored(page)).toEqual([existing])
 })
+
+test('Value Breakdown paints three tones beside the reference and restores an editable study', async ({ page, browser }) => {
+  await page.setViewportSize({ width: 820, height: 1180 })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Change practice mode' }).click()
+  await page.getByRole('radio', { name: /Value Breakdown/ }).check()
+  await page.getByRole('button', { name: 'Start practice' }).click()
+  await expect(page.getByRole('heading', { name: 'Value Breakdown' })).toBeVisible()
+  await expect(page.getByRole('timer')).toHaveCount(0)
+  const board = page.getByRole('application', { name: 'Value drawing surface' })
+  const paper = await imageBox(board)
+  const refBox = await page.getByRole('img', { name: 'Terracotta pitcher', exact: true }).boundingBox()
+  expect(refBox!.x + refBox!.width).toBeLessThan(paper.x)
+  await page.getByRole('button', { name: '3 values', exact: true }).click()
+  const reference = page.getByRole('img', { name: /in three values/ })
+  await expect.poll(() => reference.evaluate((el: HTMLCanvasElement) => {
+    const { data } = el.getContext('2d')!.getImageData(0, 0, el.width, el.height)
+    const levels = new Set<number>()
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] !== data[i + 1] || data[i] !== data[i + 2]) throw new Error('Expected grayscale')
+      levels.add(data[i])
+    }
+    return [...levels].sort((a, b) => a - b)
+  })).toEqual([52, 138, 222])
+  const canvas = board.locator('.ink-layer')
+  async function mark(y: number) {
+    const at = paper.y + y * paper.height
+    await page.mouse.move(paper.x + paper.width * 0.25, at)
+    await page.mouse.down()
+    await page.mouse.move(paper.x + paper.width * 0.75, at, { steps: 10 })
+    await page.mouse.up()
+  }
+  for (const [index, tone] of ['light', 'middle', 'dark'].entries()) {
+    await page.getByRole('button', { name: new RegExp('^' + tone + '$', 'i') }).click()
+    await mark(0.25 + index * 0.25)
+  }
+  await expect(page.locator('.local-indicator')).toHaveText('Saved on this device')
+  // The surface paints the committed outline on the next animation frame.
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  const painted = await pixels(canvas)
+  await page.getByRole('button', { name: 'Eraser', exact: true }).click()
+  await mark(0.75)
+  await expect.poll(() => pixels(canvas)).toBeLessThan(painted)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect.poll(() => pixels(canvas)).toBe(painted)
+  await expect(page.locator('.local-indicator')).toHaveText('Saved on this device')
+  await page.reload()
+  await expect(reference).toBeVisible()
+  await expect.poll(() => pixels(canvas)).toBe(painted)
+  await openBackup(page)
+  const path = await downloadedFile(page, 'Download backup')
+  const fresh = await browser.newContext({ baseURL: page.url(), viewport: { width: 820, height: 1180 } })
+  try {
+    const restored = await fresh.newPage()
+    await restored.goto('/')
+    await restoreFile(restored, path)
+    await expect(restored.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled()
+    await restored.getByRole('button', { name: 'Original', exact: true }).click()
+    await restored.getByRole('button', { name: 'Finish value study' }).click()
+    const saved = await sessionReady(restored)
+    expect(saved.config.mode).toBe('value')
+    expect(saved.trace.map((s) => s.value)).toEqual(['light', 'middle', 'dark'])
+    expect(saved.reconstruct).toHaveLength(0)
+    await restored.getByRole('button', { name: 'View session history' }).click()
+    await restored.getByRole('button', { name: 'Open value study' }).click()
+    const ink = restored.getByRole('application', { name: 'Value drawing surface' }).locator('.ink-layer')
+    await expect.poll(() => ink.evaluate((el: HTMLCanvasElement) => {
+      const { data } = el.getContext('2d')!.getImageData(0, 0, el.width, el.height)
+      const levels = new Set<number>()
+      for (let i = 0; i < data.length; i += 4) if (data[i + 3] === 255) levels.add(data[i])
+      return [...levels].sort((a, b) => a - b)
+    })).toEqual([52, 138, 222])
+    await expect(restored.getByRole('button', { name: 'Try reconstruction again' })).toHaveCount(0)
+  } finally {
+    await fresh.close()
+  }
+})

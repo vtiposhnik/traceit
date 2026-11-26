@@ -6,6 +6,7 @@ export interface SurfaceOptions {
   height: number
   strokes: Stroke[]
   overlay?: Stroke[]
+  paintValue?: Stroke['value']
   color?: string
   overlayScale?: number
   alignment?: Offset
@@ -176,6 +177,7 @@ export class SurfaceEngine {
       if (x < 0 || y < 0 || x > frame.width * frame.scale || y > frame.height * frame.scale) return
       const stroke: Stroke = {
         tool,
+        ...(tool === 'pencil' && this.options.paintValue && { value: this.options.paintValue }),
         points: [],
         size: this.options.size,
         simulatePressure: event.pointerType === 'mouse' || event.pressure <= 0,

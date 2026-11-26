@@ -32,6 +32,10 @@ In Compare, **Try reconstruction again** starts a blank reconstruction with the 
 
 Open **Session history → Studio backup** to download the desk, completed studies, and library. The file includes reference images, editable strokes, and comparison settings. To use it in another browser, choose **Restore backup**, select the file, and confirm. Matching records are updated, and a backed-up unfinished study replaces the current desk. When a save fails, **Download this study** exports the drawing from memory in the same format.
 
+### Value Breakdown
+
+Open the practice mode selector, choose **Value Breakdown**, and start practice with a studio, uploaded, or imported reference. Paint on the sheet beside the original with light, middle, or dark ink. Switch to **3 values** to check the broad tonal groups. Brush and eraser size, undo, and redo are available throughout the untimed study. The desk autosaves your drawing and reference view. **Finish value study** adds it to session history, and studio backups include its paint values.
+
 ## Source map
 
 | Directory | Responsibility |

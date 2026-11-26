@@ -1,5 +1,5 @@
 import { getStroke } from 'perfect-freehand'
-import type { Stroke } from './model'
+import { valueColor, type Stroke } from './model'
 
 const paths = new WeakMap<Stroke, Path2D>()
 
@@ -31,7 +31,7 @@ function outline(stroke: Stroke, complete: boolean) {
 
 export function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke, color: string, complete = true) {
   ctx.globalCompositeOperation = stroke.tool === 'eraser' ? 'destination-out' : 'source-over'
-  ctx.fillStyle = color
+  ctx.fillStyle = stroke.value ? valueColor(stroke.value) : color
   ctx.fill(outline(stroke, complete))
   ctx.globalCompositeOperation = 'source-over'
 }
